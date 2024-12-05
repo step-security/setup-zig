@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs').promises;
 const core = require('@actions/core');
 const tc = require('@actions/tool-cache');
+const axios = require('axios');
 const cache = require('@actions/cache');
 const common = require('./common');
 const minisign = require('./minisign');
