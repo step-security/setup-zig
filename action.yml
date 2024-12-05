@@ -1,0 +1,20 @@
+name: 'Setup Zig Compiler'
+description: 'Download and install the Zig compiler, and cache the global Zig cache'
+inputs:
+  version:
+    description: 'Version of the Zig compiler, e.g. "0.13.0" or "0.13.0-dev.351+64ef45eb0". "master" uses the latest nightly build. "latest" uses the latest tagged release.'
+    required: true
+    default: 'latest'
+  mirror:
+    description: 'Override of Zig download mirror to use, e.g. "https://pkg.machengine.org/zig".'
+    required: false
+    default: ''
+  use-cache:
+    description: 'Whether to cache the global Zig cache directory.'
+    required: true
+    default: true
+runs:
+  using: "node20"
+  main: "dist/index.js"
+  post: "dist/post/index.js"
+  post-if: success()
