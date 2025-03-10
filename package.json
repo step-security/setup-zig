@@ -16,7 +16,7 @@
     "@actions/exec": "^1.1.1",
     "@actions/github": "^6.0.0",
     "@actions/tool-cache": "^2.0.1",
-    "axios": "^1.7.9",
+    "axios": "^1.8.2",
     "libsodium-wrappers": "^0.7.15"
   },
   "devDependencies": {
