@@ -1,4 +1,5 @@
 const os = require('os');
+const fs = require('fs');
 const path = require('path');
 const core = require('@actions/core');
 const github = require('@actions/github');
@@ -8,13 +9,33 @@ const VERSIONS_JSON = 'https://ziglang.org/download/index.json';
 const MACH_VERSIONS_JSON = 'https://pkg.machengine.org/zig/index.json';
 const CACHE_PREFIX = "setup-zig-global-cache-";
 
+const MINIMUM_ZIG_VERSION_REGEX = /\.\s*minimum_zig_version\s*=\s*"(.*?)"/;
+
 let _cached_version = null;
 async function getVersion() {
   if (_cached_version != null) {
     return _cached_version;
   }
 
-  const raw = core.getInput('version');
+  let raw = core.getInput('version');
+  if (raw === '') {
+    try {
+      const zon = await fs.promises.readFile('build.zig.zon', 'utf8');
+      const match = MINIMUM_ZIG_VERSION_REGEX.exec(zon);
+
+      if (match !== null) {
+        _cached_version = match[1];
+        return _cached_version;
+      }
+
+      core.info('Failed to find minimum_zig_version in build.zig.zon (using latest)');
+    } catch (e) {
+      core.info(`Failed to read build.zig.zon (using latest): ${e}`);
+    }
+
+    raw = 'latest';
+  }
+
   if (raw === 'master') {
     const resp = await fetch(VERSIONS_JSON);
     const versions = await resp.json();
@@ -67,19 +88,40 @@ async function getVersion() {
 async function getTarballName() {
   const version = await getVersion();
 
-  const arch = {
-    arm: 'armv7a',
-    arm64: 'aarch64',
-    ppc64: 'powerpc64',
-    riscv64: 'riscv64',
-    x64: 'x86_64',
+  let arch = {
+    arm:      'armv7a',
+    arm64:    'aarch64',
+    loong64:  'loongarch64',
+    mips:     'mips',
+    mipsel:   'mipsel',
+    mips64:   'mips64',
+    mips64el: 'mips64el',
+    ppc64:    'powerpc64',
+    riscv64:  'riscv64',
+    s390x:    's390x',
+    ia32:     'x86',
+    x64:      'x86_64',
   }[os.arch()];
 
-  return {
-    linux:  `zig-linux-${arch}-${version}`,
-    darwin: `zig-macos-${arch}-${version}`,
-    win32:  `zig-windows-${arch}-${version}`,
+  // For some incomprehensible reason, Node.js's brain-damaged build system explicitly throws away
+  // the knowledge that it is building for ppc64le, so os.arch() will identify it as ppc64 even on
+  // little endian.
+  if (arch === 'powerpc64' && os.endianness() === 'LE') {
+    arch = 'powerpc64le';
+  }
+
+  const platform = {
+    aix:     'aix',
+    android: 'android',
+    freebsd: 'freebsd',
+    linux:   'linux',
+    darwin:  'macos',
+    openbsd: 'openbsd',
+    sunos:   'solaris',
+    win32:   'windows',
   }[os.platform()];
+
+  return `zig-${platform}-${arch}-${version}`;
 }
 
 async function getTarballExt() {
