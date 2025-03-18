@@ -175,7 +175,7 @@ module.exports = {
 /***/ 460:
 /***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
 
-const sodium = __nccwpck_require__(1608);
+const sodium = __nccwpck_require__(2833);
 
 // Parse a minisign key represented as a base64 string.
 // Throws exceptions on invalid keys.
@@ -37596,6 +37596,1914 @@ function range(a, b, str) {
 
 /***/ }),
 
+/***/ 7994:
+/***/ ((module, exports, __nccwpck_require__) => {
+
+const resolve = __nccwpck_require__(4002)
+const { Version } = __nccwpck_require__(9747)
+const errors = __nccwpck_require__(3539)
+
+module.exports = exports = function resolve(
+  specifier,
+  parentURL,
+  opts,
+  readPackage
+) {
+  if (typeof opts === 'function') {
+    readPackage = opts
+    opts = {}
+  } else if (typeof readPackage !== 'function') {
+    readPackage = defaultReadPackage
+  }
+
+  return {
+    *[Symbol.iterator]() {
+      const generator = exports.addon(specifier, parentURL, opts)
+
+      let next = generator.next()
+
+      while (next.done !== true) {
+        const value = next.value
+
+        if (value.package) {
+          next = generator.next(readPackage(value.package))
+        } else {
+          next = generator.next(yield value.resolution)
+        }
+      }
+
+      return next.value
+    },
+
+    async *[Symbol.asyncIterator]() {
+      const generator = exports.addon(specifier, parentURL, opts)
+
+      let next = generator.next()
+
+      while (next.done !== true) {
+        const value = next.value
+
+        if (value.package) {
+          next = generator.next(await readPackage(value.package))
+        } else {
+          next = generator.next(yield value.resolution)
+        }
+      }
+
+      return next.value
+    }
+  }
+}
+
+function defaultReadPackage() {
+  return null
+}
+
+const { UNRESOLVED, YIELDED, RESOLVED } = resolve.constants
+
+exports.constants = {
+  UNRESOLVED,
+  YIELDED,
+  RESOLVED
+}
+
+exports.addon = function* (specifier, parentURL, opts = {}) {
+  const { resolutions = null } = opts
+
+  if (exports.startsWithWindowsDriveLetter(specifier)) {
+    specifier = '/' + specifier
+  }
+
+  let status
+
+  if (resolutions) {
+    status = yield* resolve.preresolved(specifier, resolutions, parentURL, opts)
+
+    if (status) return status
+  }
+
+  status = yield* exports.url(specifier, parentURL, opts)
+
+  if (status) return status
+
+  let version = null
+
+  const i = specifier.lastIndexOf('@')
+
+  if (i > 0) {
+    version = specifier.substring(i + 1)
+
+    try {
+      Version.parse(version)
+
+      specifier = specifier.substring(0, i)
+    } catch {
+      version = null
+    }
+  }
+
+  if (
+    specifier === '.' ||
+    specifier === '..' ||
+    specifier[0] === '/' ||
+    specifier[0] === '\\' ||
+    specifier.startsWith('./') ||
+    specifier.startsWith('.\\') ||
+    specifier.startsWith('../') ||
+    specifier.startsWith('..\\')
+  ) {
+    return yield* exports.directory(specifier, version, parentURL, opts)
+  }
+
+  return yield* exports.package(specifier, version, parentURL, opts)
+}
+
+exports.url = function* (url, parentURL, opts = {}) {
+  let resolution
+  try {
+    resolution = new URL(url)
+  } catch {
+    return UNRESOLVED
+  }
+
+  const resolved = yield { resolution }
+
+  return resolved ? RESOLVED : YIELDED
+}
+
+exports["package"] = function* (
+  packageSpecifier,
+  packageVersion,
+  parentURL,
+  opts = {}
+) {
+  if (packageSpecifier === '') {
+    throw errors.INVALID_ADDON_SPECIFIER(
+      `Addon specifier '${packageSpecifier}' is not a valid package name`
+    )
+  }
+
+  let packageName
+
+  if (packageSpecifier[0] !== '@') {
+    packageName = packageSpecifier.split('/', 1).join()
+  } else {
+    if (!packageSpecifier.includes('/')) {
+      throw errors.INVALID_ADDON_SPECIFIER(
+        `Addon specifier '${packageSpecifier}' is not a valid package name`
+      )
+    }
+
+    packageName = packageSpecifier.split('/', 2).join('/')
+  }
+
+  if (
+    packageName[0] === '.' ||
+    packageName.includes('\\') ||
+    packageName.includes('%')
+  ) {
+    throw errors.INVALID_ADDON_SPECIFIER(
+      `Addon specifier '${packageSpecifier}' is not a valid package name`
+    )
+  }
+
+  const packageSubpath = '.' + packageSpecifier.substring(packageName.length)
+
+  const status = yield* exports.packageSelf(
+    packageName,
+    packageSubpath,
+    packageVersion,
+    parentURL,
+    opts
+  )
+
+  if (status) return status
+
+  parentURL = new URL(parentURL.href)
+
+  do {
+    const packageURL = new URL('node_modules/' + packageName + '/', parentURL)
+
+    parentURL.pathname = parentURL.pathname.substring(
+      0,
+      parentURL.pathname.lastIndexOf('/')
+    )
+
+    const info = yield { package: new URL('package.json', packageURL) }
+
+    if (info) {
+      return yield* exports.directory(
+        packageSubpath,
+        packageVersion,
+        packageURL,
+        opts
+      )
+    }
+  } while (parentURL.pathname !== '' && parentURL.pathname !== '/')
+
+  return UNRESOLVED
+}
+
+exports.packageSelf = function* (
+  packageName,
+  packageSubpath,
+  packageVersion,
+  parentURL,
+  opts = {}
+) {
+  for (const packageURL of resolve.lookupPackageScope(parentURL, opts)) {
+    const info = yield { package: packageURL }
+
+    if (info) {
+      if (info.name === packageName) {
+        return yield* exports.directory(
+          packageSubpath,
+          packageVersion,
+          packageURL,
+          opts
+        )
+      }
+
+      break
+    }
+  }
+
+  return UNRESOLVED
+}
+
+exports.lookupPrebuildsScope = function* lookupPrebuildsScope(url, opts = {}) {
+  const { resolutions = null } = opts
+
+  if (resolutions) {
+    for (const { resolution } of resolve.preresolved(
+      '#prebuilds',
+      resolutions,
+      url,
+      opts
+    )) {
+      if (resolution) return yield resolution
+    }
+  }
+
+  const scopeURL = new URL(url.href)
+
+  do {
+    yield new URL('prebuilds/', scopeURL)
+
+    scopeURL.pathname = scopeURL.pathname.substring(
+      0,
+      scopeURL.pathname.lastIndexOf('/')
+    )
+
+    if (
+      scopeURL.pathname.length === 3 &&
+      exports.isWindowsDriveLetter(scopeURL.pathname.substring(1))
+    ) {
+      break
+    }
+  } while (scopeURL.pathname !== '' && scopeURL.pathname !== '/')
+}
+
+exports.file = function* (filename, parentURL, opts = {}) {
+  if (parentURL.protocol === 'file:' && /%2f|%5c/i.test(filename)) {
+    throw errors.INVALID_ADDON_SPECIFIER(
+      `Addon specifier '${filename}' is invalid`
+    )
+  }
+
+  const { extensions = [] } = opts
+
+  let status = UNRESOLVED
+
+  for (const ext of extensions) {
+    if (yield { resolution: new URL(filename + ext, parentURL) }) {
+      return RESOLVED
+    }
+
+    status = YIELDED
+  }
+
+  return status
+}
+
+exports.directory = function* (dirname, version, parentURL, opts = {}) {
+  const {
+    resolutions = null,
+    host = null, // Shorthand for single host resolution
+    hosts = host !== null ? [host] : [],
+    builtins = [],
+    matchedConditions = []
+  } = opts
+
+  let directoryURL
+
+  if (
+    dirname[dirname.length - 1] === '/' ||
+    dirname[dirname.length - 1] === '\\'
+  ) {
+    directoryURL = new URL(dirname, parentURL)
+  } else {
+    directoryURL = new URL(dirname + '/', parentURL)
+  }
+
+  // Internal preresolution path, do not depend on this! It will be removed without
+  // warning.
+  if (resolutions) {
+    const status = yield* resolve.preresolved(
+      'bare:addon',
+      resolutions,
+      directoryURL,
+      opts
+    )
+
+    if (status) return status
+  }
+
+  const unversioned = version === null
+
+  let name = null
+
+  const info = yield { package: new URL('package.json', directoryURL) }
+
+  if (info) {
+    if (typeof info.name === 'string' && info.name !== '') {
+      name = info.name.replace(/\//g, '+').replace(/^@/, '')
+    } else {
+      return UNRESOLVED
+    }
+
+    if (typeof info.version === 'string' && info.version !== '') {
+      if (version !== null && info.version !== version) return UNRESOLVED
+
+      version = info.version
+    }
+  } else {
+    return UNRESOLVED
+  }
+
+  let status
+
+  status = yield* resolve.builtinTarget(name, version, builtins, opts)
+
+  if (status) return status
+
+  for (const prebuildsURL of exports.lookupPrebuildsScope(directoryURL, opts)) {
+    status = UNRESOLVED
+
+    for (const host of hosts) {
+      const conditions = host.split('-')
+
+      matchedConditions.push(...conditions)
+
+      if (version !== null) {
+        status |= yield* exports.file(
+          host + '/' + name + '@' + version,
+          prebuildsURL,
+          opts
+        )
+      }
+
+      if (unversioned) {
+        status |= yield* exports.file(host + '/' + name, prebuildsURL, opts)
+      }
+
+      for (const _ of conditions) matchedConditions.pop()
+    }
+
+    if (status === RESOLVED) return status
+  }
+
+  return yield* exports.linked(name, version, opts)
+}
+
+exports.linked = function* (name, version = null, opts = {}) {
+  const {
+    linked = true,
+    host = null, // Shorthand for single host resolution
+    hosts = host !== null ? [host] : [],
+    matchedConditions = []
+  } = opts
+
+  if (linked === false || hosts.length === 0) return UNRESOLVED
+
+  let status = UNRESOLVED
+
+  for (const host of hosts) {
+    const [platform = null] = host.split('-', 1)
+
+    if (platform === null) continue
+
+    matchedConditions.push(platform)
+
+    status |= yield* platformArtefact(name, version, platform, opts)
+
+    matchedConditions.pop()
+  }
+
+  return status
+}
+
+function* platformArtefact(name, version = null, platform, opts = {}) {
+  const { linkedProtocol = 'linked:' } = opts
+
+  if (platform === 'darwin' || platform === 'ios') {
+    if (version !== null) {
+      if (
+        yield {
+          resolution: new URL(
+            `${linkedProtocol}${name}.${version}.framework/${name}.${version}`
+          )
+        }
+      ) {
+        return RESOLVED
+      }
+
+      if (platform === 'darwin') {
+        if (
+          yield {
+            resolution: new URL(`${linkedProtocol}lib${name}.${version}.dylib`)
+          }
+        ) {
+          return RESOLVED
+        }
+      }
+    }
+
+    if (
+      yield {
+        resolution: new URL(`${linkedProtocol}${name}.framework/${name}`)
+      }
+    ) {
+      return RESOLVED
+    }
+
+    if (platform === 'darwin') {
+      if (
+        yield {
+          resolution: new URL(`${linkedProtocol}lib${name}.dylib`)
+        }
+      ) {
+        return RESOLVED
+      }
+    }
+
+    return YIELDED
+  }
+
+  if (platform === 'linux' || platform === 'android') {
+    if (version !== null) {
+      if (
+        yield {
+          resolution: new URL(`${linkedProtocol}lib${name}.${version}.so`)
+        }
+      ) {
+        return RESOLVED
+      }
+    }
+
+    if (
+      yield {
+        resolution: new URL(`${linkedProtocol}lib${name}.so`)
+      }
+    ) {
+      return RESOLVED
+    }
+
+    return YIELDED
+  }
+
+  if (platform === 'win32') {
+    if (version !== null) {
+      if (
+        yield {
+          resolution: new URL(`${linkedProtocol}${name}-${version}.dll`)
+        }
+      ) {
+        return RESOLVED
+      }
+    }
+
+    if (
+      yield {
+        resolution: new URL(`${linkedProtocol}${name}.dll`)
+      }
+    ) {
+      return RESOLVED
+    }
+  }
+
+  return UNRESOLVED
+}
+
+exports.isWindowsDriveLetter = resolve.isWindowsDriveLetter
+
+exports.startsWithWindowsDriveLetter = resolve.startsWithWindowsDriveLetter
+
+
+/***/ }),
+
+/***/ 3539:
+/***/ ((module) => {
+
+module.exports = class AddonResolveError extends Error {
+  constructor(msg, code, fn = AddonResolveError) {
+    super(`${code}: ${msg}`)
+    this.code = code
+
+    if (Error.captureStackTrace) {
+      Error.captureStackTrace(this, fn)
+    }
+  }
+
+  get name() {
+    return 'AddonResolveError'
+  }
+
+  static INVALID_ADDON_SPECIFIER(msg) {
+    return new AddonResolveError(
+      msg,
+      'INVALID_ADDON_SPECIFIER',
+      AddonResolveError.INVALID_ADDON_SPECIFIER
+    )
+  }
+}
+
+
+/***/ }),
+
+/***/ 4002:
+/***/ ((module, exports, __nccwpck_require__) => {
+
+const { satisfies } = __nccwpck_require__(9747)
+const errors = __nccwpck_require__(1035)
+
+module.exports = exports = function resolve(
+  specifier,
+  parentURL,
+  opts,
+  readPackage
+) {
+  if (typeof opts === 'function') {
+    readPackage = opts
+    opts = {}
+  } else if (typeof readPackage !== 'function') {
+    readPackage = defaultReadPackage
+  }
+
+  return {
+    *[Symbol.iterator]() {
+      const generator = exports.module(specifier, parentURL, opts)
+
+      let next = generator.next()
+
+      while (next.done !== true) {
+        const value = next.value
+
+        if (value.package) {
+          next = generator.next(readPackage(value.package))
+        } else {
+          next = generator.next(yield value.resolution)
+        }
+      }
+
+      return next.value
+    },
+
+    async *[Symbol.asyncIterator]() {
+      const generator = exports.module(specifier, parentURL, opts)
+
+      let next = generator.next()
+
+      while (next.done !== true) {
+        const value = next.value
+
+        if (value.package) {
+          next = generator.next(await readPackage(value.package))
+        } else {
+          next = generator.next(yield value.resolution)
+        }
+      }
+
+      return next.value
+    }
+  }
+}
+
+function defaultReadPackage() {
+  return null
+}
+
+// No resolution candidate was yielded
+const UNRESOLVED = 0x0
+// At least 1 resolution candidate was yielded
+const YIELDED = 0x1
+// At least 1 resolution candidate was yielded and resolved
+const RESOLVED = YIELDED | 0x2
+
+exports.constants = {
+  UNRESOLVED,
+  YIELDED,
+  RESOLVED
+}
+
+exports.module = function* (specifier, parentURL, opts = {}) {
+  const { resolutions = null, imports = null } = opts
+
+  if (exports.startsWithWindowsDriveLetter(specifier)) {
+    specifier = '/' + specifier
+  }
+
+  let status
+
+  if (resolutions) {
+    status = yield* exports.preresolved(specifier, resolutions, parentURL, opts)
+
+    if (status) return status
+  }
+
+  status = yield* exports.url(specifier, parentURL, opts)
+
+  if (status) return status
+
+  status = yield* exports.packageImports(specifier, parentURL, opts)
+
+  if (status) return status
+
+  if (
+    specifier === '.' ||
+    specifier === '..' ||
+    specifier[0] === '/' ||
+    specifier[0] === '\\' ||
+    specifier.startsWith('./') ||
+    specifier.startsWith('.\\') ||
+    specifier.startsWith('../') ||
+    specifier.startsWith('..\\')
+  ) {
+    if (imports) {
+      status = yield* exports.packageImportsExports(
+        specifier,
+        imports,
+        parentURL,
+        true,
+        opts
+      )
+
+      if (status) return status
+    }
+
+    status = yield* exports.file(specifier, parentURL, false, opts)
+
+    if (status === RESOLVED) return status
+
+    return yield* exports.directory(specifier, parentURL, opts)
+  }
+
+  return yield* exports.package(specifier, parentURL, opts)
+}
+
+exports.url = function* (url, parentURL, opts = {}) {
+  const { imports = null } = opts
+
+  let resolution
+  try {
+    resolution = new URL(url)
+  } catch {
+    return UNRESOLVED
+  }
+
+  if (imports) {
+    const status = yield* exports.packageImportsExports(
+      resolution.href,
+      imports,
+      parentURL,
+      true,
+      opts
+    )
+
+    if (status) return status
+  }
+
+  if (resolution.protocol === 'node:') {
+    const specifier = resolution.pathname
+
+    if (
+      specifier === '.' ||
+      specifier === '..' ||
+      specifier[0] === '/' ||
+      specifier.startsWith('./') ||
+      specifier.startsWith('../')
+    ) {
+      throw errors.INVALID_MODULE_SPECIFIER(
+        `Module specifier '${url}' is not a valid package name`
+      )
+    }
+
+    return yield* exports.package(specifier, parentURL, opts)
+  }
+
+  const resolved = yield { resolution }
+
+  return resolved ? RESOLVED : YIELDED
+}
+
+exports.preresolved = function* (specifier, resolutions, parentURL, opts = {}) {
+  const imports = resolutions[parentURL.href]
+
+  if (typeof imports === 'object' && imports !== null) {
+    return yield* exports.packageImportsExports(
+      specifier,
+      imports,
+      parentURL,
+      true,
+      opts
+    )
+  }
+
+  return UNRESOLVED
+}
+
+exports["package"] = function* (packageSpecifier, parentURL, opts = {}) {
+  const { builtins = [] } = opts
+
+  if (packageSpecifier === '') {
+    throw errors.INVALID_MODULE_SPECIFIER(
+      `Module specifier '${packageSpecifier}' is not a valid package name`
+    )
+  }
+
+  let packageName
+
+  if (packageSpecifier[0] !== '@') {
+    packageName = packageSpecifier.split('/', 1).join()
+  } else {
+    if (!packageSpecifier.includes('/')) {
+      throw errors.INVALID_MODULE_SPECIFIER(
+        `Module specifier '${packageSpecifier}' is not a valid package name`
+      )
+    }
+
+    packageName = packageSpecifier.split('/', 2).join('/')
+  }
+
+  if (
+    packageName[0] === '.' ||
+    packageName.includes('\\') ||
+    packageName.includes('%')
+  ) {
+    throw errors.INVALID_MODULE_SPECIFIER(
+      `Module specifier '${packageSpecifier}' is not a valid package name`
+    )
+  }
+
+  let status
+
+  status = yield* exports.builtinTarget(packageSpecifier, null, builtins, opts)
+
+  if (status) return status
+
+  let packageSubpath = '.' + packageSpecifier.substring(packageName.length)
+
+  status = yield* exports.packageSelf(
+    packageName,
+    packageSubpath,
+    parentURL,
+    opts
+  )
+
+  if (status) return status
+
+  parentURL = new URL(parentURL.href)
+
+  do {
+    const packageURL = new URL('node_modules/' + packageName + '/', parentURL)
+
+    parentURL.pathname = parentURL.pathname.substring(
+      0,
+      parentURL.pathname.lastIndexOf('/')
+    )
+
+    const info = yield { package: new URL('package.json', packageURL) }
+
+    if (info) {
+      if (info.engines) exports.validateEngines(packageURL, info.engines, opts)
+
+      if (info.exports) {
+        return yield* exports.packageExports(
+          packageURL,
+          packageSubpath,
+          info.exports,
+          opts
+        )
+      }
+
+      if (packageSubpath === '.') {
+        if (typeof info.main === 'string' && info.main !== '') {
+          packageSubpath = info.main
+        } else {
+          return yield* exports.file('index', packageURL, true, opts)
+        }
+      }
+
+      status = yield* exports.file(packageSubpath, packageURL, false, opts)
+
+      if (status === RESOLVED) return status
+
+      return yield* exports.directory(packageSubpath, packageURL, opts)
+    }
+  } while (parentURL.pathname !== '' && parentURL.pathname !== '/')
+
+  return UNRESOLVED
+}
+
+exports.packageSelf = function* (
+  packageName,
+  packageSubpath,
+  parentURL,
+  opts = {}
+) {
+  for (const packageURL of exports.lookupPackageScope(parentURL, opts)) {
+    const info = yield { package: packageURL }
+
+    if (info) {
+      if (info.name !== packageName) return false
+
+      if (info.exports) {
+        return yield* exports.packageExports(
+          packageURL,
+          packageSubpath,
+          info.exports,
+          opts
+        )
+      }
+
+      if (packageSubpath === '.') {
+        if (typeof info.main === 'string' && info.main !== '') {
+          packageSubpath = info.main
+        } else {
+          return yield* exports.file('index', packageURL, true, opts)
+        }
+      }
+
+      const status = yield* exports.file(
+        packageSubpath,
+        packageURL,
+        false,
+        opts
+      )
+
+      if (status === RESOLVED) return status
+
+      return yield* exports.directory(packageSubpath, packageURL, opts)
+    }
+  }
+
+  return UNRESOLVED
+}
+
+exports.packageExports = function* (
+  packageURL,
+  subpath,
+  packageExports,
+  opts = {}
+) {
+  if (subpath === '.') {
+    let mainExport
+
+    if (typeof packageExports === 'string' || Array.isArray(packageExports)) {
+      mainExport = packageExports
+    } else if (typeof packageExports === 'object' && packageExports !== null) {
+      const keys = Object.keys(packageExports)
+
+      if (keys.some((key) => key.startsWith('.'))) {
+        if ('.' in packageExports) mainExport = packageExports['.']
+      } else {
+        mainExport = packageExports
+      }
+    }
+
+    if (mainExport) {
+      const status = yield* exports.packageTarget(
+        packageURL,
+        mainExport,
+        null,
+        false,
+        opts
+      )
+
+      if (status) return status
+    }
+  } else if (typeof packageExports === 'object' && packageExports !== null) {
+    const keys = Object.keys(packageExports)
+
+    if (keys.every((key) => key.startsWith('.'))) {
+      const status = yield* exports.packageImportsExports(
+        subpath,
+        packageExports,
+        packageURL,
+        false,
+        opts
+      )
+
+      if (status) return status
+    }
+  }
+
+  packageURL = new URL('package.json', packageURL)
+
+  throw errors.PACKAGE_PATH_NOT_EXPORTED(
+    `Package subpath '${subpath}' is not defined by "exports" in '${packageURL}'`
+  )
+}
+
+exports.packageImports = function* (specifier, parentURL, opts = {}) {
+  const { imports = null } = opts
+
+  if (specifier === '#' || specifier.startsWith('#/')) {
+    throw errors.INVALID_MODULE_SPECIFIER(
+      `Module specifier '${specifier}' is not a valid internal imports specifier`
+    )
+  }
+
+  for (const packageURL of exports.lookupPackageScope(parentURL, opts)) {
+    const info = yield { package: packageURL }
+
+    if (info) {
+      if (info.imports) {
+        const status = yield* exports.packageImportsExports(
+          specifier,
+          info.imports,
+          packageURL,
+          true,
+          opts
+        )
+
+        if (status) return status
+      }
+
+      if (specifier.startsWith('#')) {
+        throw errors.PACKAGE_IMPORT_NOT_DEFINED(
+          `Package import specifier '${specifier}' is not defined by "imports" in '${packageURL}'`
+        )
+      }
+
+      break
+    }
+  }
+
+  if (imports) {
+    const status = yield* exports.packageImportsExports(
+      specifier,
+      imports,
+      parentURL,
+      true,
+      opts
+    )
+
+    if (status) return status
+  }
+
+  return UNRESOLVED
+}
+
+exports.packageImportsExports = function* (
+  matchKey,
+  matchObject,
+  packageURL,
+  isImports,
+  opts = {}
+) {
+  if (matchKey in matchObject && !matchKey.includes('*')) {
+    const target = matchObject[matchKey]
+
+    return yield* exports.packageTarget(
+      packageURL,
+      target,
+      null,
+      isImports,
+      opts
+    )
+  }
+
+  const expansionKeys = Object.keys(matchObject)
+    .filter((key) => key.includes('*'))
+    .sort(exports.patternKeyCompare)
+
+  for (const expansionKey of expansionKeys) {
+    const patternIndex = expansionKey.indexOf('*')
+    const patternBase = expansionKey.substring(0, patternIndex)
+
+    if (matchKey.startsWith(patternBase) && matchKey !== patternBase) {
+      const patternTrailer = expansionKey.substring(patternIndex + 1)
+
+      if (
+        patternTrailer === '' ||
+        (matchKey.endsWith(patternTrailer) &&
+          matchKey.length >= expansionKey.length)
+      ) {
+        const target = matchObject[expansionKey]
+
+        const patternMatch = matchKey.substring(
+          patternBase.length,
+          matchKey.length - patternTrailer.length
+        )
+
+        return yield* exports.packageTarget(
+          packageURL,
+          target,
+          patternMatch,
+          isImports,
+          opts
+        )
+      }
+    }
+  }
+
+  return UNRESOLVED
+}
+
+exports.validateEngines = function validateEngines(
+  packageURL,
+  packageEngines,
+  opts = {}
+) {
+  const { engines = {} } = opts
+
+  for (const [engine, range] of Object.entries(packageEngines)) {
+    if (engine in engines) {
+      const version = engines[engine]
+
+      if (!satisfies(version, range)) {
+        packageURL = new URL('package.json', packageURL)
+
+        throw errors.UNSUPPORTED_ENGINE(
+          `Package not compatible with engine '${engine}' ${version}, requires range '${range}' defined by "engines" in '${packageURL}'`
+        )
+      }
+    }
+  }
+}
+
+exports.patternKeyCompare = function patternKeyCompare(keyA, keyB) {
+  const patternIndexA = keyA.indexOf('*')
+  const patternIndexB = keyB.indexOf('*')
+  const baseLengthA = patternIndexA === -1 ? keyA.length : patternIndexA + 1
+  const baseLengthB = patternIndexB === -1 ? keyB.length : patternIndexB + 1
+  if (baseLengthA > baseLengthB) return -1
+  if (baseLengthB > baseLengthA) return 1
+  if (patternIndexA === -1) return 1
+  if (patternIndexB === -1) return -1
+  if (keyA.length > keyB.length) return -1
+  if (keyB.length > keyA.length) return 1
+  return 0
+}
+
+exports.packageTarget = function* (
+  packageURL,
+  target,
+  patternMatch,
+  isImports,
+  opts = {}
+) {
+  const { conditions = [], matchedConditions = [] } = opts
+
+  if (typeof target === 'string') {
+    if (!target.startsWith('./') && !isImports) {
+      packageURL = new URL('package.json', packageURL)
+
+      throw errors.INVALID_PACKAGE_TARGET(
+        `Invalid target '${target}' defined by "exports" in '${packageURL}'`
+      )
+    }
+
+    if (patternMatch !== null) {
+      target = target.replaceAll('*', patternMatch)
+    }
+
+    const status = yield* exports.url(target, packageURL, opts)
+
+    if (status) return status
+
+    if (
+      target === '.' ||
+      target === '..' ||
+      target[0] === '/' ||
+      target.startsWith('./') ||
+      target.startsWith('../')
+    ) {
+      const resolved = yield { resolution: new URL(target, packageURL) }
+
+      return resolved ? RESOLVED : YIELDED
+    }
+
+    return yield* exports.package(target, packageURL, opts)
+  }
+
+  if (Array.isArray(target)) {
+    for (const targetValue of target) {
+      const status = yield* exports.packageTarget(
+        packageURL,
+        targetValue,
+        patternMatch,
+        isImports,
+        opts
+      )
+
+      if (status) return status
+    }
+  } else if (typeof target === 'object' && target !== null) {
+    let status = UNRESOLVED
+
+    for (const [condition, targetValue, subset] of exports.conditionMatches(
+      target,
+      conditions,
+      opts
+    )) {
+      matchedConditions.push(condition)
+
+      status |= yield* exports.packageTarget(
+        packageURL,
+        targetValue,
+        patternMatch,
+        isImports,
+        { ...opts, conditions: subset }
+      )
+
+      matchedConditions.pop()
+    }
+
+    if (status) return status
+  }
+
+  return UNRESOLVED
+}
+
+exports.builtinTarget = function* (
+  packageSpecifier,
+  packageVersion,
+  target,
+  opts = {}
+) {
+  const {
+    builtinProtocol = 'builtin:',
+    conditions = [],
+    matchedConditions = []
+  } = opts
+
+  if (typeof target === 'string') {
+    const targetParts = target.split('@')
+
+    let targetName
+    let targetVersion
+
+    if (target[0] !== '@') {
+      targetName = targetParts[0]
+      targetVersion = targetParts[1] || null
+    } else {
+      targetName = targetParts.slice(0, 2).join('@')
+      targetVersion = targetParts[2] || null
+    }
+
+    if (packageSpecifier === targetName) {
+      if (packageVersion === null && targetVersion === null) {
+        const resolved = yield {
+          resolution: new URL(builtinProtocol + packageSpecifier)
+        }
+
+        return resolved ? RESOLVED : YIELDED
+      }
+
+      let version = null
+
+      if (packageVersion === null) {
+        version = targetVersion
+      } else if (targetVersion === null || packageVersion === targetVersion) {
+        version = packageVersion
+      }
+
+      if (version !== null) {
+        const resolved = yield {
+          resolution: new URL(
+            builtinProtocol + packageSpecifier + '@' + version
+          )
+        }
+
+        return resolved ? RESOLVED : YIELDED
+      }
+    }
+  } else if (Array.isArray(target)) {
+    for (const targetValue of target) {
+      const status = yield* exports.builtinTarget(
+        packageSpecifier,
+        packageVersion,
+        targetValue,
+        opts
+      )
+
+      if (status) return status
+    }
+  } else if (typeof target === 'object' && target !== null) {
+    let status = UNRESOLVED
+
+    for (const [condition, targetValue, subset] of exports.conditionMatches(
+      target,
+      conditions,
+      opts
+    )) {
+      matchedConditions.push(condition)
+
+      status |= yield* exports.builtinTarget(
+        packageSpecifier,
+        packageVersion,
+        targetValue,
+        { ...opts, conditions: subset }
+      )
+
+      matchedConditions.pop()
+    }
+
+    if (status) return status
+  }
+
+  return UNRESOLVED
+}
+
+exports.conditionMatches = function* conditionMatches(
+  target,
+  conditions,
+  opts = {}
+) {
+  if (conditions.every((condition) => typeof condition === 'string')) {
+    const keys = Object.keys(target)
+
+    for (const condition of keys) {
+      if (condition === 'default' || conditions.includes(condition)) {
+        yield [condition, target[condition], conditions]
+
+        return true
+      }
+    }
+
+    return false
+  }
+
+  let yielded = false
+
+  for (const subset of conditions) {
+    if (yield* conditionMatches(target, subset, opts)) {
+      yielded = true
+    }
+  }
+
+  return yielded
+}
+
+exports.lookupPackageScope = function* lookupPackageScope(url, opts = {}) {
+  const { resolutions = null } = opts
+
+  if (resolutions) {
+    for (const { resolution } of exports.preresolved(
+      '#package',
+      resolutions,
+      url,
+      opts
+    )) {
+      if (resolution) return yield resolution
+    }
+
+    // Internal preresolution path, do not depend on this! It will be removed without
+    // warning.
+    for (const { resolution } of exports.preresolved(
+      'bare:package',
+      resolutions,
+      url,
+      opts
+    )) {
+      if (resolution) return yield resolution
+    }
+  }
+
+  const scopeURL = new URL(url.href)
+
+  do {
+    if (scopeURL.pathname.endsWith('/node_modules')) break
+
+    yield new URL('package.json', scopeURL)
+
+    scopeURL.pathname = scopeURL.pathname.substring(
+      0,
+      scopeURL.pathname.lastIndexOf('/')
+    )
+
+    if (
+      scopeURL.pathname.length === 3 &&
+      exports.isWindowsDriveLetter(scopeURL.pathname.substring(1))
+    ) {
+      break
+    }
+  } while (scopeURL.pathname !== '' && scopeURL.pathname !== '/')
+}
+
+exports.file = function* (filename, parentURL, isIndex, opts = {}) {
+  if (
+    filename === '.' ||
+    filename === '..' ||
+    filename[filename.length - 1] === '/' ||
+    filename[filename.length - 1] === '\\'
+  ) {
+    return UNRESOLVED
+  }
+
+  if (parentURL.protocol === 'file:' && /%2f|%5c/i.test(filename)) {
+    throw errors.INVALID_MODULE_SPECIFIER(
+      `Module specifier '${filename}' is invalid`
+    )
+  }
+
+  const { extensions = [] } = opts
+
+  let status = UNRESOLVED
+
+  if (!isIndex) {
+    if (yield { resolution: new URL(filename, parentURL) }) {
+      return RESOLVED
+    }
+
+    status = YIELDED
+  }
+
+  for (const ext of extensions) {
+    if (yield { resolution: new URL(filename + ext, parentURL) }) {
+      return RESOLVED
+    }
+
+    status = YIELDED
+  }
+
+  return status
+}
+
+exports.directory = function* (dirname, parentURL, opts = {}) {
+  let directoryURL
+
+  if (
+    dirname[dirname.length - 1] === '/' ||
+    dirname[dirname.length - 1] === '\\'
+  ) {
+    directoryURL = new URL(dirname, parentURL)
+  } else {
+    directoryURL = new URL(dirname + '/', parentURL)
+  }
+
+  const info = yield { package: new URL('package.json', directoryURL) }
+
+  if (info) {
+    if (info.exports) {
+      return yield* exports.packageExports(
+        directoryURL,
+        '.',
+        info.exports,
+        opts
+      )
+    }
+
+    if (typeof info.main === 'string' && info.main !== '') {
+      const status = yield* exports.file(info.main, directoryURL, false, opts)
+
+      if (status === RESOLVED) return status
+
+      return yield* exports.directory(info.main, directoryURL, opts)
+    }
+  }
+
+  return yield* exports.file('index', directoryURL, true, opts)
+}
+
+// https://infra.spec.whatwg.org/#ascii-upper-alpha
+function isASCIIUpperAlpha(c) {
+  return c >= 0x41 && c <= 0x5a
+}
+
+// https://infra.spec.whatwg.org/#ascii-lower-alpha
+function isASCIILowerAlpha(c) {
+  return c >= 0x61 && c <= 0x7a
+}
+
+// https://infra.spec.whatwg.org/#ascii-alpha
+function isASCIIAlpha(c) {
+  return isASCIIUpperAlpha(c) || isASCIILowerAlpha(c)
+}
+
+// https://url.spec.whatwg.org/#windows-drive-letter
+exports.isWindowsDriveLetter = function isWindowsDriveLetter(input) {
+  return (
+    input.length >= 2 &&
+    isASCIIAlpha(input.charCodeAt(0)) &&
+    (input.charCodeAt(1) === 0x3a || input.charCodeAt(1) === 0x7c)
+  )
+}
+
+// https://url.spec.whatwg.org/#start-with-a-windows-drive-letter
+exports.startsWithWindowsDriveLetter = function startsWithWindowsDriveLetter(
+  input
+) {
+  return (
+    input.length >= 2 &&
+    exports.isWindowsDriveLetter(input) &&
+    (input.length === 2 ||
+      input.charCodeAt(2) === 0x2f ||
+      input.charCodeAt(2) === 0x5c ||
+      input.charCodeAt(2) === 0x3f ||
+      input.charCodeAt(2) === 0x23)
+  )
+}
+
+
+/***/ }),
+
+/***/ 1035:
+/***/ ((module) => {
+
+module.exports = class ModuleResolveError extends Error {
+  constructor(msg, code, fn = ModuleResolveError) {
+    super(`${code}: ${msg}`)
+    this.code = code
+
+    if (Error.captureStackTrace) {
+      Error.captureStackTrace(this, fn)
+    }
+  }
+
+  get name() {
+    return 'ModuleResolveError'
+  }
+
+  static INVALID_MODULE_SPECIFIER(msg) {
+    return new ModuleResolveError(
+      msg,
+      'INVALID_MODULE_SPECIFIER',
+      ModuleResolveError.INVALID_MODULE_SPECIFIER
+    )
+  }
+
+  static INVALID_PACKAGE_TARGET(msg) {
+    return new ModuleResolveError(
+      msg,
+      'INVALID_PACKAGE_TARGET',
+      ModuleResolveError.INVALID_PACKAGE_TARGET
+    )
+  }
+
+  static PACKAGE_PATH_NOT_EXPORTED(msg) {
+    return new ModuleResolveError(
+      msg,
+      'PACKAGE_PATH_NOT_EXPORTED',
+      ModuleResolveError.PACKAGE_PATH_NOT_EXPORTED
+    )
+  }
+
+  static PACKAGE_IMPORT_NOT_DEFINED(msg) {
+    return new ModuleResolveError(
+      msg,
+      'PACKAGE_IMPORT_NOT_DEFINED',
+      ModuleResolveError.PACKAGE_IMPORT_NOT_DEFINED
+    )
+  }
+
+  static UNSUPPORTED_ENGINE(msg) {
+    return new ModuleResolveError(
+      msg,
+      'UNSUPPORTED_ENGINE',
+      ModuleResolveError.UNSUPPORTED_ENGINE
+    )
+  }
+}
+
+
+/***/ }),
+
+/***/ 9747:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+exports.constants = __nccwpck_require__(3926)
+exports.errors = __nccwpck_require__(9484)
+
+const Version = exports.Version = __nccwpck_require__(7371)
+const Range = exports.Range = __nccwpck_require__(358)
+exports.Comparator = __nccwpck_require__(7531)
+
+exports.satisfies = function satisfies (version, range) {
+  if (typeof version === 'string') version = Version.parse(version)
+  if (typeof range === 'string') range = Range.parse(range)
+
+  return range.test(version)
+}
+
+
+/***/ }),
+
+/***/ 7531:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+const constants = __nccwpck_require__(3926)
+
+const symbols = {
+  [constants.EQ]: '=',
+  [constants.LT]: '<',
+  [constants.LTE]: '<=',
+  [constants.GT]: '>',
+  [constants.GTE]: '>='
+}
+
+module.exports = class Comparator {
+  constructor (operator, version) {
+    this.operator = operator
+    this.version = version
+  }
+
+  test (version) {
+    const result = version.compare(this.version)
+
+    switch (this.operator) {
+      case constants.LT: return result < 0
+      case constants.LTE: return result <= 0
+      case constants.GT: return result > 0
+      case constants.GTE: return result >= 0
+      default: return result === 0
+    }
+  }
+
+  toString () {
+    return symbols[this.operator] + this.version
+  }
+}
+
+
+/***/ }),
+
+/***/ 3926:
+/***/ ((module) => {
+
+module.exports = {
+  EQ: 1,
+  LT: 2,
+  LTE: 3,
+  GT: 4,
+  GTE: 5
+}
+
+
+/***/ }),
+
+/***/ 9484:
+/***/ ((module) => {
+
+module.exports = class SemVerError extends Error {
+  constructor (msg, code, fn = SemVerError) {
+    super(`${code}: ${msg}`)
+    this.code = code
+
+    if (Error.captureStackTrace) {
+      Error.captureStackTrace(this, fn)
+    }
+  }
+
+  get name () {
+    return 'SemVerError'
+  }
+
+  static INVALID_VERSION (msg, fn = SemVerError.INVALID_VERSION) {
+    return new SemVerError(msg, 'INVALID_VERSION', fn)
+  }
+
+  static INVALID_RANGE (msg, fn = SemVerError.INVALID_RANGE) {
+    return new SemVerError(msg, 'INVALID_RANGE', fn)
+  }
+}
+
+
+/***/ }),
+
+/***/ 358:
+/***/ ((module, exports, __nccwpck_require__) => {
+
+const constants = __nccwpck_require__(3926)
+const errors = __nccwpck_require__(9484)
+const Version = __nccwpck_require__(7371)
+const Comparator = __nccwpck_require__(7531)
+
+const Range = module.exports = exports = class Range {
+  constructor (comparators = []) {
+    this.comparators = comparators
+  }
+
+  test (version) {
+    for (const set of this.comparators) {
+      let matches = true
+
+      for (const comparator of set) {
+        if (comparator.test(version)) continue
+        matches = false
+        break
+      }
+
+      if (matches) return true
+    }
+
+    return false
+  }
+
+  toString () {
+    let result = ''
+    let first = true
+
+    for (const set of this.comparators) {
+      if (first) first = false
+      else result += ' || '
+
+      result += set.join(' ')
+    }
+
+    return result
+  }
+}
+
+exports.parse = function parse (input, state = { position: 0, partial: false }) {
+  let i = state.position
+  let c
+
+  const unexpected = (expected) => {
+    let msg
+
+    if (i >= input.length) {
+      msg = `Unexpected end of input in '${input}'`
+    } else {
+      msg = `Unexpected token '${input[i]}' in '${input}' at position ${i}`
+    }
+
+    if (expected) msg += `, ${expected}`
+
+    throw errors.INVALID_VERSION(msg, unexpected)
+  }
+
+  const comparators = []
+
+  while (i < input.length) {
+    const set = []
+
+    while (i < input.length) {
+      c = input[i]
+
+      let operator = constants.EQ
+
+      if (c === '<') {
+        operator = constants.LT
+        c = input[++i]
+
+        if (c === '=') {
+          operator = constants.LTE
+          c = input[++i]
+        }
+      } else if (c === '>') {
+        operator = constants.GT
+        c = input[++i]
+
+        if (c === '=') {
+          operator = constants.GTE
+          c = input[++i]
+        }
+      } else if (c === '=') {
+        c = input[++i]
+      }
+
+      const state = { position: i, partial: true }
+
+      set.push(new Comparator(operator, Version.parse(input, state)))
+
+      c = input[i = state.position]
+
+      while (c === ' ') c = input[++i]
+
+      if (c === '|' && input[i + 1] === '|') {
+        c = input[i += 2]
+
+        while (c === ' ') c = input[++i]
+
+        break
+      }
+
+      if (c && c !== '<' && c !== '>') unexpected('expected \'||\', \'<\', or \'>\'')
+    }
+
+    if (set.length) comparators.push(set)
+  }
+
+  if (i < input.length && state.partial === false) unexpected('expected end of input')
+
+  state.position = i
+
+  return new Range(comparators)
+}
+
+
+/***/ }),
+
+/***/ 7371:
+/***/ ((module, exports, __nccwpck_require__) => {
+
+const errors = __nccwpck_require__(9484)
+
+const Version = module.exports = exports = class Version {
+  constructor (major, minor, patch, opts = {}) {
+    const {
+      prerelease = [],
+      build = []
+    } = opts
+
+    this.major = major
+    this.minor = minor
+    this.patch = patch
+    this.prerelease = prerelease
+    this.build = build
+  }
+
+  compare (version) {
+    return exports.compare(this, version)
+  }
+
+  toString () {
+    let result = `${this.major}.${this.minor}.${this.patch}`
+
+    if (this.prerelease.length) {
+      result += '-' + this.prerelease.join('.')
+    }
+
+    if (this.build.length) {
+      result += '+' + this.build.join('.')
+    }
+
+    return result
+  }
+}
+
+exports.parse = function parse (input, state = { position: 0, partial: false }) {
+  let i = state.position
+  let c
+
+  const unexpected = (expected) => {
+    let msg
+
+    if (i >= input.length) {
+      msg = `Unexpected end of input in '${input}'`
+    } else {
+      msg = `Unexpected token '${input[i]}' in '${input}' at position ${i}`
+    }
+
+    if (expected) msg += `, ${expected}`
+
+    throw errors.INVALID_VERSION(msg, unexpected)
+  }
+
+  const components = []
+
+  while (components.length < 3) {
+    c = input[i]
+
+    if (components.length > 0) {
+      if (c === '.') c = input[++i]
+      else unexpected('expected \'.\'')
+    }
+
+    if (c === '0') {
+      components.push(0)
+
+      i++
+    } else if (c >= '1' && c <= '9') {
+      let j = 0
+      do c = input[i + ++j]
+      while (c >= '0' && c <= '9')
+
+      components.push(parseInt(input.substring(i, i + j)))
+
+      i += j
+    } else unexpected('expected /[0-9]/')
+  }
+
+  const prerelease = []
+
+  if (input[i] === '-') {
+    i++
+
+    while (true) {
+      c = input[i]
+
+      let tag = ''
+      let j = 0
+
+      while (c >= '0' && c <= '9') c = input[i + ++j]
+
+      let isNumeric = false
+
+      if (j) {
+        tag += input.substring(i, i + j)
+
+        c = input[i += j]
+
+        isNumeric = tag[0] !== '0' || tag.length === 1
+      }
+
+      j = 0
+
+      while ((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c === '-') c = input[i + ++j]
+
+      if (j) {
+        tag += input.substring(i, i + j)
+
+        c = input[i += j]
+      } else if (!isNumeric) unexpected('expected /[a-zA-Z-]/')
+
+      prerelease.push(tag)
+
+      if (c === '.') c = input[++i]
+      else break
+    }
+  }
+
+  const build = []
+
+  if (input[i] === '+') {
+    i++
+
+    while (true) {
+      c = input[i]
+
+      let tag = ''
+      let j = 0
+
+      while ((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c === '-') c = input[i + ++j]
+
+      if (j) {
+        tag += input.substring(i, i + j)
+
+        c = input[i += j]
+      } else unexpected('expected /[0-9a-zA-Z-]/')
+
+      build.push(tag)
+
+      if (c === '.') c = input[++i]
+      else break
+    }
+  }
+
+  if (i < input.length && state.partial === false) unexpected('expected end of input')
+
+  state.position = i
+
+  return new Version(...components, { prerelease, build })
+}
+
+const integer = /^[0-9]+$/
+
+exports.compare = function compare (a, b) {
+  if (a.major > b.major) return 1
+  if (a.major < b.major) return -1
+
+  if (a.minor > b.minor) return 1
+  if (a.minor < b.minor) return -1
+
+  if (a.patch > b.patch) return 1
+  if (a.patch < b.patch) return -1
+
+  if (a.prerelease.length === 0) return b.prerelease.length === 0 ? 0 : 1
+  if (b.prerelease.length === 0) return -1
+
+  let i = 0
+  do {
+    let x = a.prerelease[i]
+    let y = b.prerelease[i]
+
+    if (x === undefined) return y === undefined ? 0 : -1
+    if (y === undefined) return 1
+
+    if (x === y) continue
+
+    const xInt = integer.test(x)
+    const yInt = integer.test(y)
+
+    if (xInt && yInt) {
+      x = +x
+      y = +y
+    } else {
+      if (xInt) return -1
+      if (yInt) return 1
+    }
+
+    return x > y ? 1 : -1
+  } while (++i)
+}
+
+
+/***/ }),
+
 /***/ 2732:
 /***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
 
@@ -42970,6 +44878,108 @@ exports.getProxyForUrl = getProxyForUrl;
 
 /***/ }),
 
+/***/ 2812:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+const runtime = __nccwpck_require__(904)
+
+if (runtime === 'bare') {
+  module.exports = __nccwpck_require__(9355)
+} else if (runtime === 'node') {
+  module.exports = __nccwpck_require__(6351)
+} else {
+  module.exports = __nccwpck_require__(698)
+}
+
+
+/***/ }),
+
+/***/ 904:
+/***/ ((module) => {
+
+module.exports =
+  typeof Bare !== 'undefined'
+    ? 'bare'
+    : typeof process !== 'undefined'
+      ? 'node'
+      : 'unknown'
+
+
+/***/ }),
+
+/***/ 9355:
+/***/ ((module) => {
+
+module.exports = require.addon.bind(require)
+
+
+/***/ }),
+
+/***/ 698:
+/***/ ((module) => {
+
+if (typeof require.addon === 'function') {
+  module.exports = require.addon.bind(require)
+} else {
+  module.exports = function addon(specifier, parentURL) {
+    throw new Error(
+      `Cannot find addon '${specifier}' imported from '${parentURL}'`
+    )
+  }
+}
+
+
+/***/ }),
+
+/***/ 6351:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+if (typeof require.addon === 'function') {
+  module.exports = require.addon.bind(require)
+} else {
+  const url = __nccwpck_require__(7016)
+  const resolve = __nccwpck_require__(7994)
+
+  const host = process.platform + '-' + process.arch
+  const conditions = ['node', process.platform, process.arch]
+  const extensions = ['.node']
+
+  module.exports = function addon(specifier, parentURL) {
+    if (typeof parentURL === 'string') parentURL = url.pathToFileURL(parentURL)
+
+    for (const resolution of resolve(
+      specifier,
+      parentURL,
+      { host, conditions, extensions },
+      readPackage
+    )) {
+      switch (resolution.protocol) {
+        case 'file:':
+          try {
+            return require(url.fileURLToPath(resolution))
+          } catch {
+            continue
+          }
+      }
+    }
+
+    throw new Error(
+      `Cannot find addon '${specifier}' imported from '${parentURL.href}'`
+    )
+
+    function readPackage(packageURL) {
+      try {
+        return require(url.fileURLToPath(packageURL))
+      } catch (err) {
+        return null
+      }
+    }
+  }
+}
+
+
+/***/ }),
+
 /***/ 9318:
 /***/ ((module, exports) => {
 
@@ -44616,6 +46626,16 @@ function coerce (version, options) {
     '.' + (match[3] || '0') +
     '.' + (match[4] || '0'), options)
 }
+
+
+/***/ }),
+
+/***/ 2833:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+require.addon = __nccwpck_require__(2812)
+
+module.exports = require.addon('.', __filename)
 
 
 /***/ }),
@@ -67588,14 +69608,6 @@ function wrappy (fn, cb) {
     return ret
   }
 }
-
-
-/***/ }),
-
-/***/ 1608:
-/***/ ((module) => {
-
-module.exports = eval("require")("sodium-native");
 
 
 /***/ }),

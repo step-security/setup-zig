@@ -17,7 +17,7 @@
     "@actions/github": "^6.0.0",
     "@actions/tool-cache": "^2.0.2",
     "axios": "^1.8.2",
-    "libsodium-wrappers": "^0.7.15"
+    "sodium-native": "^4.3.3"
   },
   "devDependencies": {
     "@vercel/ncc": "^0.38.3"
