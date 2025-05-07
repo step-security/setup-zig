@@ -2,7 +2,9 @@ const sodium = require('libsodium-wrappers');
 
 // Parse a minisign key represented as a base64 string.
 // Throws exceptions on invalid keys.
-function parseKey(key_str) {
+async function parseKey(key_str) {
+  await sodium.ready;
+
   const key_info = Buffer.from(key_str, 'base64');
 
   const id = key_info.subarray(2, 10);
@@ -20,7 +22,8 @@ function parseKey(key_str) {
 
 // Parse a buffer containing the contents of a minisign signature file.
 // Throws exceptions on invalid signature files.
-function parseSignature(sig_buf) {
+async function parseSignature(sig_buf) {
+  await sodium.ready;
   const untrusted_header = Buffer.from('untrusted comment: ');
 
   // Validate untrusted comment header, and skip
@@ -54,7 +57,8 @@ function parseSignature(sig_buf) {
 // Given a parsed key, parsed signature file, and raw file content, verifies the
 // signature. Does not throw. Returns 'true' if the signature is valid for this
 // file, 'false' otherwise.
-function verifySignature(pubkey, signature, file_content) {
+async function verifySignature(pubkey, signature, file_content) {
+  await sodium.ready;
   let signed_content;
   if (signature.algorithm.equals(Buffer.from('ED'))) {
     signed_content = Buffer.alloc(sodium.crypto_generichash_BYTES_MAX);
@@ -77,8 +81,7 @@ function verifySignature(pubkey, signature, file_content) {
   return true;
 }
 
-module.exports = {
-  parseKey,
-  parseSignature,
-  verifySignature,
-};
+module.exports = (async () => {
+  await sodium.ready;
+  return { parseKey, parseSignature, verifySignature };
+})();
