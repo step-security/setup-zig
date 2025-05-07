@@ -196,7 +196,8 @@ async function verifySignature(pubkey, signature, file_content) {
   await sodium.ready;
   let signed_content;
   if (signature.algorithm.equals(Buffer.from('ED'))) {
-    signed_content = sodium.crypto_generichash(sodium.crypto_generichash_BYTES, file_content);
+    signed_content = Buffer.alloc(sodium.crypto_generichash_BYTES);
+    sodium.crypto_generichash(signed_content, file_content);
   } else {
     signed_content = file_content;
   }
