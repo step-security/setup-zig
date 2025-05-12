@@ -73,19 +73,40 @@ async function getVersion() {
 async function getTarballName() {
   const version = await getVersion();
 
-  const arch = {
-    arm: 'armv7a',
-    arm64: 'aarch64',
-    ppc64: 'powerpc64',
-    riscv64: 'riscv64',
-    x64: 'x86_64',
+  let arch = {
+    arm:      'armv7a',
+    arm64:    'aarch64',
+    loong64:  'loongarch64',
+    mips:     'mips',
+    mipsel:   'mipsel',
+    mips64:   'mips64',
+    mips64el: 'mips64el',
+    ppc64:    'powerpc64',
+    riscv64:  'riscv64',
+    s390x:    's390x',
+    ia32:     'x86',
+    x64:      'x86_64',
   }[os.arch()];
 
-  return {
-    linux:  `zig-linux-${arch}-${version}`,
-    darwin: `zig-macos-${arch}-${version}`,
-    win32:  `zig-windows-${arch}-${version}`,
+  // For some incomprehensible reason, Node.js's brain-damaged build system explicitly throws away
+  // the knowledge that it is building for ppc64le, so os.arch() will identify it as ppc64 even on
+  // little endian.
+  if (arch === 'powerpc64' && os.endianness() === 'LE') {
+    arch = 'powerpc64le';
+  }
+
+  const platform = {
+    aix:     'aix',
+    android: 'android',
+    freebsd: 'freebsd',
+    linux:   'linux',
+    darwin:  'macos',
+    openbsd: 'openbsd',
+    sunos:   'solaris',
+    win32:   'windows',
   }[os.platform()];
+
+  return `zig-${platform}-${arch}-${version}`;
 }
 
 async function getTarballExt() {
@@ -157,10 +178,11 @@ function parseKey(key_str) {
 // Throws exceptions on invalid signature files.
 function parseSignature(sig_buf) {
   const untrusted_header = Buffer.from('untrusted comment: ');
+  const trusted_header = Buffer.from('trusted comment: ');
 
   // Validate untrusted comment header, and skip
   if (!sig_buf.subarray(0, untrusted_header.byteLength).equals(untrusted_header)) {
-    throw new Error('file format not recognised');
+    throw new Error('invalid minisign signature: bad untrusted comment header');
   }
   sig_buf = sig_buf.subarray(untrusted_header.byteLength);
 
@@ -177,19 +199,45 @@ function parseSignature(sig_buf) {
   const key_id = sig_info.subarray(2, 10);
   const signature = sig_info.subarray(10);
 
-  // We don't look at the trusted comment or global signature, so we're done.
+  // Validate trusted comment header, and skip
+  if (!sig_buf.subarray(0, trusted_header.byteLength).equals(trusted_header)) {
+    throw new Error('invalid minisign signature: bad trusted comment header');
+  }
+  sig_buf = sig_buf.subarray(trusted_header.byteLength);
+
+  // Read and skip trusted comment
+  const trusted_comment_end = sig_buf.indexOf('\n');
+  const trusted_comment = sig_buf.subarray(0, trusted_comment_end);
+  sig_buf = sig_buf.subarray(trusted_comment_end + 1);
+
+  // Read and skip global signature; handle missing trailing newline, just in case
+  let global_sig_end = sig_buf.indexOf('\n');
+  if (global_sig_end == -1) global_sig_end = sig_buf.length;
+  const global_sig = Buffer.from(sig_buf.subarray(0, global_sig_end).toString(), 'base64');
+  sig_buf = sig_buf.subarray(sig_info_end + 1); // this might be length+1, but that's allowed
+
+  // Validate that all data has been consumed
+  if (sig_buf.length !== 0) {
+    throw new Error('invalid minisign signature: trailing bytes');
+  }
 
   return {
     algorithm: algorithm,
     key_id: key_id,
     signature: signature,
+    trusted_comment: trusted_comment,
+    global_signature: global_sig,
   };
 }
 
-// Given a parsed key, parsed signature file, and raw file content, verifies the
-// signature. Does not throw. Returns 'true' if the signature is valid for this
-// file, 'false' otherwise.
+// Given a parsed key, parsed signature file, and raw file content, verifies the signature,
+// including the global signature (hence validating the trusted comment). Does not throw.
+// Returns 'true' if the signature is valid for this file, 'false' otherwise.
 function verifySignature(pubkey, signature, file_content) {
+  if (!signature.key_id.equals(pubkey.id)) {
+    return false;
+  }
+
   let signed_content;
   if (signature.algorithm.equals(Buffer.from('ED'))) {
     signed_content = Buffer.alloc(sodium.crypto_generichash_BYTES_MAX);
@@ -197,17 +245,14 @@ function verifySignature(pubkey, signature, file_content) {
   } else {
     signed_content = file_content;
   }
-
-  if (!signature.key_id.equals(pubkey.id)) {
-    return false;
-  }
-
   if (!sodium.crypto_sign_verify_detached(signature.signature, signed_content, pubkey.key)) {
     return false;
   }
 
-  // Since we don't use the trusted comment, we don't bother verifying the global signature.
-  // If we were to start using the trusted comment for any purpose, we must add this.
+  const global_signed_content = Buffer.concat([signature.signature, signature.trusted_comment]);
+  if (!sodium.crypto_sign_verify_detached(signature.global_signature, global_signed_content, pubkey.key)) {
+    return false;
+  }
 
   return true;
 }
@@ -90484,7 +90529,7 @@ module.exports = axios;
 /***/ ((module) => {
 
 "use strict";
-module.exports = /*#__PURE__*/JSON.parse('[["https://pkg.machengine.org/zig","slimsag <stephen@hexops.com>"],["https://zigmirror.hryx.net/zig","hryx <codroid@gmail.com>"],["https://zig.linus.dev/zig","linusg <mail@linusgroh.de>"],["https://fs.liujiacai.net/zigbuilds","jiacai2050 <hello@liujiacai.net>"],["https://zigmirror.nesovic.dev/zig","kaynetik <aleksandar@nesovic.dev>"]]');
+module.exports = /*#__PURE__*/JSON.parse('[["https://pkg.machengine.org/zig","emidoots <emi@hexops.com>"],["https://zigmirror.hryx.net/zig","hryx <codroid@gmail.com>"],["https://zig.linus.dev/zig","linusg <mail@linusgroh.de>"],["https://fs.liujiacai.net/zigbuilds","jiacai2050 <hello@liujiacai.net>"],["https://zig.nekos.space/zig","0t4u <rattley@nekos.space>"]]');
 
 /***/ }),
 
@@ -90556,10 +90601,10 @@ const CANONICAL = 'https://ziglang.org/builds';
 // This is an array of URLs.
 const MIRRORS = (__nccwpck_require__(7602).map)((x) => x[0]);
 
-async function downloadFromMirror(mirror, tarball_name, tarball_ext) {
-  const tarball_path = await tc.downloadTool(`${mirror}/${tarball_name}${tarball_ext}?source=github-actions`);
+async function downloadFromMirror(mirror, tarball_filename) {
+  const tarball_path = await tc.downloadTool(`${mirror}/${tarball_filename}?source=github-actions`);
 
-  const signature_response = await fetch(`${mirror}/${tarball_name}${tarball_ext}.minisig?source=github-actions`);
+  const signature_response = await fetch(`${mirror}/${tarball_filename}.minisig?source=github-actions`);
   const signature_data = Buffer.from(await signature_response.arrayBuffer());
 
   const tarball_data = await fs.readFile(tarball_path);
@@ -90567,20 +90612,27 @@ async function downloadFromMirror(mirror, tarball_name, tarball_ext) {
   const key = minisign.parseKey(MINISIGN_KEY);
   const signature = minisign.parseSignature(signature_data);
   if (!minisign.verifySignature(key, signature, tarball_data)) {
-    throw new Error(`signature verification failed for '${mirror}/${tarball_name}${tarball_ext}'`);
+    throw new Error(`signature verification failed for '${mirror}/${tarball_filename}'`);
+  }
+
+  // Parse the trusted comment to validate the tarball name.
+  // This prevents a malicious actor from trying to pass off one signed tarball as another.
+  const match = /^timestamp:\d+\s+file:([^\s]+)\s+hashed$/.exec(signature.trusted_comment.toString());
+  if (match === null || match[1] !== tarball_filename) {
+    throw new Error(`filename verification failed for '${mirror}/${tarball_filename}'`);
   }
 
   return tarball_path;
 }
 
-async function downloadTarball(tarball_name, tarball_ext) {
+async function downloadTarball(tarball_filename) {
   const preferred_mirror = core.getInput('mirror');
   if (preferred_mirror.includes("://ziglang.org/") || preferred_mirror.startsWith("ziglang.org/")) {
     throw new Error("'https://ziglang.org' cannot be used as mirror override; for more information see README.md");
   }
   if (preferred_mirror) {
     core.info(`Using mirror: ${preferred_mirror}`);
-    return await downloadFromMirror(preferred_mirror, tarball_name, tarball_ext);
+    return await downloadFromMirror(preferred_mirror, tarball_filename);
   }
 
   // We will attempt all mirrors before making a last-ditch attempt to the official download.
@@ -90589,14 +90641,14 @@ async function downloadTarball(tarball_name, tarball_ext) {
   for (const mirror of shuffled_mirrors) {
     core.info(`Attempting mirror: ${mirror}`);
     try {
-      return await downloadFromMirror(mirror, tarball_name, tarball_ext);
+      return await downloadFromMirror(mirror, tarball_filename);
     } catch (e) {
       core.info(`Mirror failed with error: ${e}`);
       // continue loop to next mirror
     }
   }
   core.info(`Attempting official: ${CANONICAL}`);
-  return await downloadFromMirror(CANONICAL, tarball_name, tarball_ext);
+  return await downloadFromMirror(CANONICAL, tarball_filename);
 }
 
 async function retrieveTarball(tarball_name, tarball_ext) {
@@ -90608,7 +90660,7 @@ async function retrieveTarball(tarball_name, tarball_ext) {
   }
 
   core.info(`Cache miss. Fetching Zig ${await common.getVersion()}`);
-  const downloaded_path = await downloadTarball(tarball_name, tarball_ext);
+  const downloaded_path = await downloadTarball(`${tarball_name}${tarball_ext}`);
   await fs.copyFile(downloaded_path, tarball_cache_path)
   await cache.saveCache([tarball_cache_path], cache_key);
   return tarball_cache_path;
