@@ -1,4 +1,4 @@
-const sodium = require('libsodium-wrappers');
+const sodium = require('sodium-javascript');
 
 // Parse a minisign key represented as a base64 string.
 // Throws exceptions on invalid keys.
