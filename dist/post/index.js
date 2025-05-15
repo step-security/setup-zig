@@ -5,6 +5,7 @@ require('./sourcemap-register.js');/******/ (() => { // webpackBootstrap
 /***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
 
 const os = __nccwpck_require__(857);
+const fs = __nccwpck_require__(9896);
 const path = __nccwpck_require__(6928);
 const core = __nccwpck_require__(7484);
 const github = __nccwpck_require__(3228);
@@ -14,60 +15,101 @@ const VERSIONS_JSON = 'https://ziglang.org/download/index.json';
 const MACH_VERSIONS_JSON = 'https://pkg.machengine.org/zig/index.json';
 const CACHE_PREFIX = "setup-zig-global-cache-";
 
+// Mach uses `mach_zig_version` in `build.zig.zon` to signify Mach nominated versions.
+// See: https://github.com/marler8997/anyzig?tab=readme-ov-file#mach-versions-and-download-mirror
+const MACH_ZIG_VERSION_REGEX = /\.\s*mach_zig_version\s*=\s*"(.*?)"/;
+const MINIMUM_ZIG_VERSION_REGEX = /\.\s*minimum_zig_version\s*=\s*"(.*?)"/;
+
 let _cached_version = null;
 async function getVersion() {
   if (_cached_version != null) {
     return _cached_version;
   }
 
-  const raw = core.getInput('version');
+  let raw = core.getInput('version');
+  if (raw === '') {
+    try {
+      const zon = await fs.promises.readFile('build.zig.zon', 'utf8');
+
+      // Look for `mach_zig_version` first
+      let match = MACH_ZIG_VERSION_REGEX.exec(zon);
+      if (match !== null) {
+        _cached_version = await getMachVersion(match[1]);
+        return _cached_version;
+      }
+
+      // Else, look for `mach_zig_version` first
+      match = MINIMUM_ZIG_VERSION_REGEX.exec(zon);
+      if (match !== null) {
+        _cached_version = match[1];
+        return _cached_version;
+      }
+
+      core.info('Failed to find `mach_zig_version` or `minimum_zig_version` in build.zig.zon (using latest)');
+    } catch (e) {
+      core.info(`Failed to read build.zig.zon (using latest): ${e}`);
+    }
+
+    raw = 'latest';
+  }
+
   if (raw === 'master') {
-    const resp = await fetch(VERSIONS_JSON);
-    const versions = await resp.json();
-    _cached_version = versions['master'].version;
+    _cached_version = await getMasterVersion();
   } else if (raw === 'latest') {
-    const resp = await fetch(VERSIONS_JSON);
-    const versions = await resp.json();
-    let latest = null;
-    let latest_major;
-    let latest_minor;
-    let latest_patch;
-    for (const version in versions) {
-      if (version === 'master') continue;
-      const [major_str, minor_str, patch_str] = version.split('.')
-      const major = Number(major_str);
-      const minor = Number(minor_str);
-      const patch = Number(patch_str);
-      if (latest === null) {
-        latest = version;
-        latest_major = major;
-        latest_minor = minor;
-        latest_patch = patch;
-        continue;
-      }
-      if (major > latest_major ||
-          (major == latest_major && minor > latest_minor) ||
-          (major == latest_major && minor == latest_minor && patch > latest_patch))
-      {
-        latest = version;
-        latest_major = major;
-        latest_minor = minor;
-        latest_patch = patch;
-      }
-    }
-    _cached_version = latest;
+    _cached_version = await getLatestVersion();
   } else if (raw.includes("mach")) {
-    const resp = await fetch(MACH_VERSIONS_JSON);
-    const versions = await resp.json();
-    if (!(raw in versions)) {
-      throw new Error(`Mach nominated version '${raw}' not found`);
-    }
-    _cached_version = versions[raw].version;
+    _cached_version = await getMachVersion(raw);
   } else {
     _cached_version = raw;
   }
 
   return _cached_version;
+}
+
+async function getMachVersion(raw) {
+  const resp = await fetch(MACH_VERSIONS_JSON);
+  const versions = await resp.json();
+  if (!(raw in versions)) {
+    throw new Error(`Mach nominated version '${raw}' not found`);
+  }
+  return versions[raw].version;
+}
+async function getMasterVersion() {
+  const resp = await fetch(VERSIONS_JSON);
+  const versions = await resp.json();
+  return versions['master'].version;
+}
+async function getLatestVersion() {
+  const resp = await fetch(VERSIONS_JSON);
+  const versions = await resp.json();
+  let latest = null;
+  let latest_major;
+  let latest_minor;
+  let latest_patch;
+  for (const version in versions) {
+    if (version === 'master') continue;
+    const [major_str, minor_str, patch_str] = version.split('.')
+    const major = Number(major_str);
+    const minor = Number(minor_str);
+    const patch = Number(patch_str);
+    if (latest === null) {
+      latest = version;
+      latest_major = major;
+      latest_minor = minor;
+      latest_patch = patch;
+      continue;
+    }
+    if (major > latest_major ||
+        (major == latest_major && minor > latest_minor) ||
+        (major == latest_major && minor == latest_minor && patch > latest_patch))
+    {
+      latest = version;
+      latest_major = major;
+      latest_minor = minor;
+      latest_patch = patch;
+    }
+  }
+  return latest;
 }
 
 async function getTarballName() {
@@ -120,7 +162,9 @@ async function getTarballExt() {
 async function getCachePrefix() {
   const tarball_name = await getTarballName();
   const job_name = github.context.job.replaceAll(/[^\w]/g, "_");
-  return `setup-zig-cache-${job_name}-${tarball_name}-`;
+  const user_key = core.getInput('cache-key');
+
+  return `setup-zig-cache-${job_name}-${tarball_name}-${user_key}-`;
 }
 
 async function getZigCachePath() {
@@ -82788,6 +82832,7 @@ module.exports = /*#__PURE__*/JSON.parse('{"name":"@actions/cache","version":"4.
 /******/ 	
 /************************************************************************/
 var __webpack_exports__ = {};
+const path = __nccwpck_require__(6928);
 const fs = (__nccwpck_require__(9896).promises);
 const core = __nccwpck_require__(7484);
 const github = __nccwpck_require__(3228);
@@ -82807,6 +82852,16 @@ async function main() {
       }
 
       if (accessible) {
+        const size = await totalSize(cache_path);
+        const size_limit = core.getInput('cache-size-limit') * 1024 * 1024; // MiB -> bytes
+        if (size_limit !== 0 && size > size_limit) {
+          core.info(`Cache directory reached ${size} bytes, exceeding limit of ${size_limit} bytes; clearing cache`);
+          // We want to clear the cache and start over. Unfortunately, we can't programmatically
+          // remove the old cache entries, so we instead want to save an empty cache directory.
+          // To do this, delete all the contents of the cache directory before saving the cache.
+          await rmDirContents(cache_path);
+        }
+
         const prefix = await common.getCachePrefix();
         const name = prefix + github.context.runId;
         await cache.saveCache([cache_path], name);
@@ -82815,6 +82870,28 @@ async function main() {
   } catch (err) {
     core.setFailed(err.message);
   }
+}
+
+async function totalSize(p) {
+  try {
+    const stat = await fs.stat(p);
+    if (stat.isFile()) return stat.size;
+    if (stat.isDirectory()) {
+      let total = 0;
+      for (const entry of await fs.readdir(p)) {
+        total += await totalSize(path.join(p, entry));
+      }
+      return total;
+    }
+    return 0;
+  } catch {
+    return 0;
+  }
+}
+
+async function rmDirContents(dir) {
+  const entries = await fs.readdir(dir);
+  await Promise.all(entries.map(e => fs.rm(path.join(dir, e), { recursive: true, force: true })));
 }
 
 main();

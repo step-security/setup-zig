@@ -11,7 +11,7 @@ jobs:
     name: Build and Test
     steps:
       - uses: actions/checkout@v3
-      - uses: step-security/setup-zig@v1
+      - uses: step-security/setup-zig@v2
       - run: zig build test
 ```
 
@@ -20,10 +20,12 @@ This will automatically download Zig and install it to `PATH`.
 You can use `version` to set a Zig version to download. This may be a release (`0.13.0`), a specific nightly
 build (`0.14.0-dev.2+0884a4341`), the string `master` for the latest nightly build, or the string `latest`
 for the latest full release. It can also refer to a [Mach nominated version][mach-nominated], such as
-`2024.5.0-mach`. The default is `latest`.
+`2024.5.0-mach`. Finally, leaving the value empty (the default) will cause the action to attempt to resolve
+the Zig version from the `minimum_zig_version` field in `build.zig.zon`, falling back to `latest` if that
+isn't possible.
 
 ```yaml
-  - uses: step-security/setup-zig@v1
+  - uses: step-security/setup-zig@v2
     with:
       version: 0.13.0
 ```
@@ -35,7 +37,7 @@ for the latest full release. It can also refer to a [Mach nominated version][mac
 If you want to use one specific mirror, you can set it using the `mirror` option:
 
 ```yaml
-  - uses: step-security/setup-zig@v1
+  - uses: step-security/setup-zig@v2
     with:
       mirror: 'https://pkg.machengine.org/zig'
 ```
@@ -49,7 +51,18 @@ If necessary, the caching of the global Zig cache directory can be disabled by s
 `use-cache: false`. Don't do this without reason: preserving the Zig cache will typically speed things up
 and decrease the load on GitHub's runners.
 
+If you are using a [matrix strategy][matrix] for your workflow, you may need to populate the `cache-key` option
+with all of your matrix variables to ensure that every job is correctly cached. Unfortunately, GitHub does not
+provide any means for the Action to automatically distinguish jobs in a matrix. However, variables which select
+the runner OS can be omitted from the `cache-key`, since the runner OS is included in the cache key by default.
+
+Zig cache directories can get incredibly large over time. By default, this Action will clear the cache directory
+once its size exceeds 2 GiB. This threshold can be changed by setting the `cache-size-limit` option to a different
+value (in MiB); for instance, `cache-size-limit: 4096` for a 4 GiB limit. The limit can be disabled entirely by
+setting `cache-size-limit: 0`.
+
 [mach-nominated]: https://machengine.org/about/nominated-zig/
+[matrix]: https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/running-variations-of-jobs-in-a-workflow
 
 ## Details
 
