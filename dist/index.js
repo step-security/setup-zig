@@ -97024,7 +97024,11 @@ async function downloadTarball(tarball_filename) {
   }
 
   // As a fallback, attempt ziglang.org.
-  const zig_version = tarball_filename.match(/\d+\.\d+\.\d+(-dev\.\d+\+[0-9a-f]+)?/)[0];
+  const match = tarball_filename.match(/\d+\.\d+\.\d+(-dev\.\d+\+[0-9a-f]+)?/);
+  if (!match) {
+    throw new Error(`Invalid tarball filename format: ${tarball_filename}`);
+  }
+  const zig_version = match[0];
   const canonical = zig_version.includes("-dev") ? CANONICAL_DEV : `${CANONICAL_RELEASE}/${zig_version}`;
   core.info(`Attempting official: ${canonical}`);
   return await downloadFromMirror(canonical, tarball_filename);
