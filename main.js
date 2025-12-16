@@ -90,14 +90,15 @@ async function downloadTarball(tarball_filename) {
 
 async function retrieveTarball(tarball_name, tarball_ext) {
   const cache_key = `setup-zig-tarball-${tarball_name}`;
-  const tarball_cache_path = await common.getTarballCachePath();
+  const tarball_basename = `${tarball_name}${tarball_ext}`;
+  const tarball_cache_path = path.join(process.env['RUNNER_TEMP'], tarball_basename);
 
   if (await cache.restoreCache([tarball_cache_path], cache_key)) {
     return tarball_cache_path;
   }
 
   core.info(`Cache miss. Fetching Zig ${await common.getVersion()}`);
-  const downloaded_path = await downloadTarball(`${tarball_name}${tarball_ext}`);
+  const downloaded_path = await downloadTarball(tarball_basename);
   await fs.copyFile(downloaded_path, tarball_cache_path)
   await cache.saveCache([tarball_cache_path], cache_key);
   return tarball_cache_path;
@@ -184,12 +185,13 @@ async function main() {
 
     core.addPath(zig_dir);
 
-    // Direct Zig to use the global cache as every local cache, so that we get maximum benefit from the caching below.
-    core.exportVariable('ZIG_LOCAL_CACHE_DIR', await common.getZigCachePath());
+    const cache_path = common.getZigCachePath();
+    core.exportVariable('ZIG_GLOBAL_CACHE_DIR', cache_path);
+    core.exportVariable('ZIG_LOCAL_CACHE_DIR', cache_path);
 
     if (core.getBooleanInput('use-cache')) {
       core.info('Attempting restore of Zig cache');
-      await cache.restoreCache([await common.getZigCachePath()], await common.getCachePrefix());
+      await cache.restoreCache([cache_path], await common.getCachePrefix());
     }
   } catch (err) {
     core.setFailed(err.message);
