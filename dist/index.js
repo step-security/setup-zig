@@ -9,7 +9,6 @@ const fs = __nccwpck_require__(9896);
 const path = __nccwpck_require__(6928);
 const core = __nccwpck_require__(7484);
 const github = __nccwpck_require__(3228);
-const exec = __nccwpck_require__(5236);
 
 const VERSIONS_JSON = 'https://ziglang.org/download/index.json';
 const MACH_VERSIONS_JSON = 'https://pkg.machengine.org/zig/index.json';
@@ -179,20 +178,20 @@ function versionLessThan(cur_ver, min_ver) {
   if (cur.major != min.major) return cur.major < min.major;
   if (cur.minor != min.minor) return cur.minor < min.minor;
   if (cur.patch != min.patch) return cur.patch < min.patch;
-  return cur.dev < min.dev;
+  return cur_dev < min_dev;
 }
 
 // Returns object with keys 'major', 'minor', 'patch', and 'dev'.
 // 'dev' is `null` if `str` was not a dev version.
 // On failure, returns `null`.
 function parseVersion(str) {
-  const match = /^(\d+)\.(\d+)\.(\d+)(?:-dev\.(\d+)\+[0-9a-f]*)?$/.exec(str);
+  const match = /^(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)(?:-dev\.(?<dev>\d+)\+[0-9a-f]*)?$/.exec(str);
   if (match === null) return null;
   return {
-    major: parseInt(match[0]),
-    minor: parseInt(match[1]),
-    patch: parseInt(match[2]),
-    dev: match[3] === null ? null : parseInt(match[3]),
+    major: parseInt(match.groups['major']),
+    minor: parseInt(match.groups['minor']),
+    patch: parseInt(match.groups['patch']),
+    dev: match.groups['dev'] === undefined ? null : parseInt(match.groups['dev']),
   };
 }
 
@@ -98257,9 +98256,9 @@ async function downloadFromMirror(mirror, tarball_filename) {
 
   const tarball_data = await fs.readFile(tarball_path);
 
-  const key = minisign.parseKey(MINISIGN_KEY);
+  const key = await minisign.parseKey(MINISIGN_KEY);
   const signature = minisign.parseSignature(signature_data);
-  if (!minisign.verifySignature(key, signature, tarball_data)) {
+  if (!await minisign.verifySignature(key, signature, tarball_data)) {
     throw new Error(`signature verification failed for '${mirror}/${tarball_filename}'`);
   }
 
@@ -98283,14 +98282,31 @@ async function downloadTarball(tarball_filename) {
     return await downloadFromMirror(preferred_mirror, tarball_filename);
   }
 
-  // Fetch the list of mirrors from ziglang.org. Caching the mirror list is awkward in this context,
-  // so if the list is inaccessible, we just fetch from ziglang.org as a fallback.
-  let mirrors = [];
+  let mirrors;
   try {
+    // Fetch an up-to-date list of available mirrors from ziglang.org.
     const mirrors_response = await fetch(MIRRORS_URL);
     mirrors = (await mirrors_response.text()).split('\n').filter((url) => url.length != 0);
   } catch {
-    // For some reason the mirrors are inaccessible. That's okay; allow ourselves to fall back to ziglang.org below.
+    // ziglang.org itself is inaccessible. As a fallback (so that ziglang.org outages don't break
+    // this Action), use a hardcoded mirror list. This was manually fetched from ziglang.org, and I
+    // expect that at least some of these mirrors will continue working. It only needs to be updated
+    // if the upstream list changes *significantly*.
+    mirrors = [
+      "https://pkg.machengine.org/zig",
+      "https://zigmirror.hryx.net/zig",
+      "https://zig.linus.dev/zig",
+      "https://zig.squirl.dev",
+      "https://zig.florent.dev",
+      "https://zig.mirror.mschae23.de/zig",
+      "https://zigmirror.meox.dev",
+      "https://ziglang.freetls.fastly.net",
+      "https://zig.tilok.dev",
+      "https://zig-mirror.tsimnet.eu/zig",
+      "https://zig.karearl.com/zig",
+      "https://pkg.earth/zig",
+      "https://fs.liujiacai.net/zigbuilds",
+    ];
   }
 
   core.info(`Available mirrors: ${mirrors.join(", ")}`);
