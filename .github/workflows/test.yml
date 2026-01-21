@@ -45,7 +45,6 @@ jobs:
       with: { fetch-depth: 0 }
     - name: 'Setup Zig'
       uses: ./
-      with: { version: '${{ matrix.zig_version }}' }
     - name: 'Test `zig init`'
       run: |
         mkdir init
