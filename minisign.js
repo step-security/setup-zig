@@ -1,4 +1,4 @@
-const sodium = require('sodium-javascript');
+const crypto = require('node:crypto');
 
 // Parse a minisign key represented as a base64 string.
 // Throws exceptions on invalid keys.
