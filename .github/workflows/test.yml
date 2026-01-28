@@ -3,8 +3,13 @@ jobs:
   test-from-project:
     runs-on: ubuntu-latest
     steps:
+    - name: Harden the runner (Audit all outbound calls)
+      uses: step-security/harden-runner@20cf305ff2072d973412fa9b1e3a4f227bda3c76 # v2.14.0
+      with:
+        egress-policy: audit
+
     - name: 'Checkout'
-      uses: actions/checkout@v6
+      uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
       with: { fetch-depth: 0 }
     - name: 'Create build.zig.zon'
       run: |
@@ -40,8 +45,13 @@ jobs:
           - '0.15.1' # armv7a -> arm (though testing on ARM is TODO!)
           - '0.15.2' # some x.x.2
     steps:
+    - name: Harden the runner (Audit all outbound calls)
+      uses: step-security/harden-runner@20cf305ff2072d973412fa9b1e3a4f227bda3c76 # v2.14.0
+      with:
+        egress-policy: audit
+
     - name: 'Checkout'
-      uses: actions/checkout@v6
+      uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
       with: { fetch-depth: 0 }
     - name: 'Setup Zig'
       uses: ./
