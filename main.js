@@ -5,6 +5,7 @@ const core = require('@actions/core');
 const tc = require('@actions/tool-cache');
 const axios = require('axios');
 const cache = require('@actions/cache');
+const exec = require('@actions/exec');
 const common = require('./common');
 const minisign = require('./minisign');
 
@@ -201,14 +202,22 @@ async function main() {
     }
 
     core.addPath(zig_dir);
+    const zig_version = (await exec.getExecOutput('zig', ['version'])).stdout.trim();
+    core.info(`Resolved Zig version ${zig_version}`);
 
     const cache_path = common.getZigCachePath();
     core.exportVariable('ZIG_GLOBAL_CACHE_DIR', cache_path);
     core.exportVariable('ZIG_LOCAL_CACHE_DIR', cache_path);
 
     if (core.getBooleanInput('use-cache')) {
-      core.info('Attempting restore of Zig cache');
-      await cache.restoreCache([cache_path], await common.getCachePrefix());
+      const cache_prefix = await common.getCachePrefix();
+      core.info(`Attempting restore of Zig cache with prefix '${cache_prefix}'`);
+      const hit = await cache.restoreCache([cache_path], cache_prefix);
+      if (hit === undefined) {
+        core.info(`Cache miss: leaving Zig cache directory at ${cache_path} unpopulated`);
+      } else {
+        core.info(`Cache hit (key '${hit}'): populating Zig cache directory at ${cache_path}`);
+      }
     }
   } catch (err) {
     core.setFailed(err.message);
