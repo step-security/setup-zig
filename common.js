@@ -3,7 +3,6 @@ const fs = require('fs');
 const path = require('path');
 const core = require('@actions/core');
 const github = require('@actions/github');
-const exec = require('@actions/exec');
 
 const VERSIONS_JSON = 'https://ziglang.org/download/index.json';
 const MACH_VERSIONS_JSON = 'https://pkg.machengine.org/zig/index.json';
@@ -173,20 +172,20 @@ function versionLessThan(cur_ver, min_ver) {
   if (cur.major != min.major) return cur.major < min.major;
   if (cur.minor != min.minor) return cur.minor < min.minor;
   if (cur.patch != min.patch) return cur.patch < min.patch;
-  return cur.dev < min.dev;
+  return cur_dev < min_dev;
 }
 
 // Returns object with keys 'major', 'minor', 'patch', and 'dev'.
 // 'dev' is `null` if `str` was not a dev version.
 // On failure, returns `null`.
 function parseVersion(str) {
-  const match = /^(\d+)\.(\d+)\.(\d+)(?:-dev\.(\d+)\+[0-9a-f]*)?$/.exec(str);
+  const match = /^(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)(?:-dev\.(?<dev>\d+)\+[0-9a-f]*)?$/.exec(str);
   if (match === null) return null;
   return {
-    major: parseInt(match[0]),
-    minor: parseInt(match[1]),
-    patch: parseInt(match[2]),
-    dev: match[3] === null ? null : parseInt(match[3]),
+    major: parseInt(match.groups['major']),
+    minor: parseInt(match.groups['minor']),
+    patch: parseInt(match.groups['patch']),
+    dev: match.groups['dev'] === undefined ? null : parseInt(match.groups['dev']),
   };
 }
 
