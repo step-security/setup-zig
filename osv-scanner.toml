@@ -1,0 +1,23 @@
+[[IgnoredVulns]]
+id = "GHSA-f886-m6hf-6m8v"
+reason = "brace-expansion is never invoked; @actions/glob sets nobrace: true in minimatch options"
+
+[[IgnoredVulns]]
+id = "GHSA-2mjp-6q6p-2qxm"
+reason = "request smuggling requires low-level undici API with flat header arrays; setup-zig uses high-level fetch/axios only"
+
+[[IgnoredVulns]]
+id = "GHSA-4992-7rv2-5pvq"
+reason = "CRLF injection requires undici upgrade option; setup-zig never performs protocol upgrades"
+
+[[IgnoredVulns]]
+id = "GHSA-g9mf-h72j-4rw9"
+reason = "HTTP decompression chain DoS requires malicious server; setup-zig only connects to trusted sources"
+
+[[IgnoredVulns]]
+id = "GHSA-v9p9-hfj2-hcw8"
+reason = "WebSocket compression bomb; setup-zig does not use WebSocket connections"
+
+[[IgnoredVulns]]
+id = "GHSA-vrm6-8vpv-qv8q"
+reason = "WebSocket decompression bomb; setup-zig does not use WebSocket connections"
