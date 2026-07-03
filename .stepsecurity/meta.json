@@ -1,0 +1,18 @@
+{
+   "schema_version": "1",
+   "onboarding_type": "copied",
+   "archived": false,
+   "maintained_action_name": "step-security/setup-zig",
+   "upstream_full_repo_name": "mlugg/setup-zig",
+   "action_type": "node",
+   "last_release": {
+     "tag_name": "v2.2.2",
+     "created_at": "2026-05-13T09:45:55Z",
+     "published_at": "2026-05-14T01:31:43Z"
+   },
+   "sync": {
+     "ignore_presets": [
+       "defaults_v1"
+     ]
+   }
+ }
